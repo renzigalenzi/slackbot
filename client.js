@@ -20,10 +20,31 @@ var wolfram = new Wolfram(AuthDetails.wolfram_api_key)
 youTube.setKey(AuthDetails.youtube_api_key);
 rtm.start();
 
+function objToString (obj) {
+    var str = '';
+    for (var p in obj) {
+        if (obj.hasOwnProperty(p)) {
+            str += p + '::' + obj[p] + '\n';
+        }
+    }
+    return str;
+}
+
 
 function PostMessage(message, channel) 
 {
-	rtm.sendMessage(message, channel);
+	var messages = [];
+	var i = 0;
+	do
+	{
+		messages[i] = message.substring(0,3000);
+		message = message.substring(3000);
+		i++;
+	} while(message.length > 0)
+	
+	messages.forEach(function(snippet) {
+		rtm.sendMessage(snippet, channel);
+	});
 }
 
 
@@ -56,6 +77,65 @@ function YoutubeSearch(message)
 			PostMessage(YTlink, message.channel);
 		}
 	});
+}
+
+function PrintIssue(issue, message)
+{
+	var Output = "Issue ID: " + issue.inwardIssue.key + " \n";
+	
+	Output += "Details: " + issue.inwardIssue.fields.summary + " \n\n";
+
+	PostMessage(Output, message.channel);
+}
+
+function GetWork(message)
+{
+	// We need this to build our post string
+	var https = require("https");
+	var fs = require("fs");
+	//Add username and password here
+	var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
+
+
+	function PostCode(codestring) {
+	 // Build the post string from an object
+	 var post_data = JSON.stringify({
+		 'jql' : codestring,
+		 'maxResults': 50,
+		 'startAt': 0
+	 });
+
+	 // An object of options to indicate where to post to
+	 var post_options = {
+		 host: "capsher.atlassian.net",
+		 path: "/rest/api/latest/search",
+		 method: "POST",
+		 headers: {
+			 "Authorization": auth,
+			 "Content-Type": "application/json"
+		 }
+	 };
+
+	 // Set up the request
+	 var post_req = https.request(post_options, function(res) {
+		 res.on("data", function (chunk) {
+			var chunkJsonData = JSON.parse(chunk.toString());
+			PostMessage('chunk to string: ' + objToString(chunkJsonData), message.channel);
+			chunkJsonData.forEach(function(issue) {
+				PostMessage('issue to string: ' + objToString(issue), message.channel);
+				PrintIssue(issue, message);
+			});
+		 });
+	 });
+
+	 // post the data
+	 PostMessage('post_data = ' + post_data, message.channel);
+	 post_req.write(post_data);
+	 post_req.end();
+
+	}
+
+	PostCode('assignee in (lelliott) AND STATUS not in (\"WORK COMPLETE\", \"Closed\")');
 }
 
 function WolframQuery(message) {
@@ -175,6 +255,11 @@ function ProcessMessage(message)
 	{
 		message.text = message.text.replace("hello", "");
 		PostMessage("Sup Homies", message.channel);
+	}
+	else if(message.text.includes("!ticket"))
+	{
+		message.text = message.text.replace("!ticket", "");
+		GetWork(message);
 	}
 }
 

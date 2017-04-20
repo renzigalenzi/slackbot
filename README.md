@@ -9,17 +9,11 @@ to run, open cmd, navigate to the project directory, and run
 
 
 ```
+set SLACK_API_TOKEN=xoxp-abc-123 
 node client.js
 ```
 
-
-in the near future we will be making the bot token hidden, and therefore will probably be running something along the lines of
-
-```
-SLACK_API_TOKEN=xoxp-abc-123 node client.js
-```
-
-where the token is only given at runtime by the executable and is not stored in the codebase. However everything has a starting point.
+where the token is only given at runtime by the executable and is not stored in the codebase.
 
 # Posting with the bot
 

@@ -11,11 +11,12 @@ var AuthDetails = require("./auth.json");
 var YouTube = require('youtube-node');
 
 var token = process.env.SLACK_API_TOKEN || '';
+var jiraUser = process.env.JIRA_USER || '';
+var jiraPassword = process.env.JIRA_PASSWORD || '';
 
 var rtm = new RtmClient(token, { logLevel: 'debug' });
 var youTube = new YouTube();
 var wolfram = new Wolfram(AuthDetails.wolfram_api_key)
-
 
 youTube.setKey(AuthDetails.youtube_api_key);
 rtm.start();
@@ -93,8 +94,8 @@ function GetWork(message)
 	// We need this to build our post string
 	var https = require("https");
 	var fs = require("fs");
-	//Add username and password here
-	var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
+	
+	var auth = "Basic " + new Buffer(jiraUser + ":" + jiraPassword).toString("base64");
 
 
 	function PostCode(codestring) {

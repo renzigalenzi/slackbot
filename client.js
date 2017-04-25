@@ -18,18 +18,12 @@ var rtm = new RtmClient(token, { logLevel: 'debug' });
 var youTube = new YouTube();
 var wolfram = new Wolfram(AuthDetails.wolfram_api_key)
 
+console.log('Token:', token);
+console.log('jiraUser:', jiraUser);
+console.log('jiraPassword:', jiraPassword);
+
 youTube.setKey(AuthDetails.youtube_api_key);
 rtm.start();
-
-function objToString (obj) {
-    var str = '';
-    for (var p in obj) {
-        if (obj.hasOwnProperty(p)) {
-            str += p + '::' + obj[p] + '\n';
-        }
-    }
-    return str;
-}
 
 
 function PostMessage(message, channel) 
@@ -59,7 +53,8 @@ function DisplayHelp(message)
 	Output += "!name - Get my name \n";
 	Output += "!about - About me \n";
 	Output += "!cat - Yes. \n";
-	Output += "!video - Youtube Search";
+	Output += "!video - Youtube Search \n";
+	Output += "!tickets {jira user alias} - get users current open tickets in jira";
 	
 	PostMessage(Output, message.channel);
 }
@@ -80,23 +75,66 @@ function YoutubeSearch(message)
 	});
 }
 
-function PrintIssue(issue, message)
+function IsValidIssue(issue)
 {
-	var Output = "Issue ID: " + issue.inwardIssue.key + " \n";
+	//in the future we may want to do more than just a "does exist", so this is step by step
+	var bValid = true;
+	if(!issue){
+		bValid = false;
+	}
+	if(bValid && !issue.key){
+		bValid = false;
+	}
+	if(bValid && !issue.fields){
+		bValid = false;
+	}
+	if(bValid && !issue.fields.summary){
+		bValid = false;
+	}
 	
-	Output += "Details: " + issue.inwardIssue.fields.summary + " \n\n";
+	return bValid;
+}
 
-	PostMessage(Output, message.channel);
+function GetIssueOuput(issueNumber, issue)
+{
+	var Output = "[" + issueNumber + "]\n";
+	
+	Output += "Issue ID: " + issue.key + "\n";
+	
+	Output += "Details: " + issue.fields.summary + "\n";
+	
+	Output += "Status: " + issue.fields.status.name + ", ";
+	
+	Output += "Created : " + issue.fields.created + ", ";
+	
+	Output += "Last Updated: " + issue.fields.updated + ", ";
+	
+	Output += "Time Spent: " + issue.fields.aggregatetimespent/3600 + " hours \n\n";
+	
+	/*Object.getOwnPropertyNames(issue.fields.status).forEach(
+	  function (val, idx, array) {
+		console.log(val + ' -> ' + issue.fields.status[val]);
+	  }
+	);*/
+	
+	return Output;
 }
 
 function GetWork(message)
 {
+	var User = message.text;
+	
+	if(User.trim().length == 0)
+	{
+		PostMessage("Tickets command Must give a user as an argument.", message.channel);
+	}
 	// We need this to build our post string
 	var https = require("https");
 	var fs = require("fs");
 	
 	var auth = "Basic " + new Buffer(jiraUser + ":" + jiraPassword).toString("base64");
-
+	
+	var strData = '';
 
 	function PostCode(codestring) {
 	 // Build the post string from an object
@@ -116,27 +154,51 @@ function GetWork(message)
 			 "Content-Type": "application/json"
 		 }
 	 };
+	                    
+	
+	//if we loop over the issues normally, we will print too quickly and cause slack to trash our spam.
+	function IssueLoop (JsonData) {   
+		
+		var issuesOutput = ""; 
+		var issueIndex = 1;
+		JsonData.issues.forEach(function(issue) {
+			if(IsValidIssue(issue))
+			{
+				issuesOutput += GetIssueOuput(issueIndex, issue);
+				issueIndex++;
+			}
+		});
+		PostMessage(issuesOutput, message.channel);
+	};
 
 	 // Set up the request
 	 var post_req = https.request(post_options, function(res) {
-		 res.on("data", function (chunk) {
-			var chunkJsonData = JSON.parse(chunk.toString());
-			PostMessage('chunk to string: ' + objToString(chunkJsonData), message.channel);
-			chunkJsonData.forEach(function(issue) {
-				PostMessage('issue to string: ' + objToString(issue), message.channel);
-				PrintIssue(issue, message);
-			});
-		 });
+		 
+		res.on('data', function (chunk) {
+			strData += chunk;
+		});
+
+		res.on('end', function () {
+			var JsonData = JSON.parse(strData);
+			
+			if(JsonData.issues && JsonData.issues.length > 0){
+				PostMessage("Request for "+User+" returned " + JsonData.issues.length + " tickets: \n", message.channel);
+				
+				IssueLoop(JsonData, JsonData.issues.length);
+			}
+			else {
+				PostMessage("Request for "+User+" returned no tickets", message.channel);
+			}
+		});
 	 });
 
 	 // post the data
-	 PostMessage('post_data = ' + post_data, message.channel);
 	 post_req.write(post_data);
 	 post_req.end();
 
 	}
 
-	PostCode('assignee in (lelliott) AND STATUS not in (\"WORK COMPLETE\", \"Closed\")');
+	PostCode('assignee in ('+User+') AND STATUS not in (\"WORK COMPLETE\", \"Approved\", \"Closed\")');
 }
 
 function WolframQuery(message) {
@@ -257,9 +319,9 @@ function ProcessMessage(message)
 		message.text = message.text.replace("hello", "");
 		PostMessage("Sup Homies", message.channel);
 	}
-	else if(message.text.includes("!ticket"))
+	else if(message.text.includes("!tickets "))
 	{
-		message.text = message.text.replace("!ticket", "");
+		message.text = message.text.replace("!tickets ", "");
 		GetWork(message);
 	}
 }

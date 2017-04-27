@@ -9,25 +9,33 @@ var RTM_EVENTS = require('@slack/client').RTM_EVENTS;
 var Wolfram = require('node-wolfram');
 var AuthDetails = require("./auth.json");
 var YouTube = require('youtube-node');
+var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
 
 var token = process.env.SLACK_API_TOKEN || '';
 var jiraUser = process.env.JIRA_USER || '';
 var jiraPassword = process.env.JIRA_PASSWORD || '';
 
-var rtm = new RtmClient(token, { logLevel: 'debug' });
+var rtm = new RtmClient(token, { logLevel: 'error' });
 var youTube = new YouTube();
-var wolfram = new Wolfram(AuthDetails.wolfram_api_key)
+var wolfram = new Wolfram(AuthDetails.wolfram_api_key);
 
 console.log('Token:', token);
 console.log('jiraUser:', jiraUser);
 console.log('jiraPassword:', jiraPassword);
 
 youTube.setKey(AuthDetails.youtube_api_key);
+youTube.addParam('type', 'video');
 rtm.start();
 
 
 function PostMessage(message, channel) 
 {
+	if(message == null)
+	{
+		rtm.sendMessage("Could not complete request", channel);
+		return;
+	}
+	
 	var messages = [];
 	var i = 0;
 	do
@@ -42,6 +50,27 @@ function PostMessage(message, channel)
 	});
 }
 
+function ReactToMessage(message)
+{
+	var ReactionList = ["ok_hand", "+1", "-1", "upside_down_face", "neutral_face", "expressionless", "sunglasses", "simple_smile", "thumbsup_all"]
+	var strReaction = ReactionList[Math.floor(Math.random() * (ReactionList.length -1))];
+	var ReactionAPIURL = "https://slack.com/api/reactions.add?token="+token+"&name="+strReaction+"&channel="+message.channel+"&timestamp="+message.ts;
+	
+	var xmlHttp = new XMLHttpRequest();
+    xmlHttp.onreadystatechange = function() { 
+        if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
+		{
+            //good
+		}
+		else if (xmlHttp.readyState == 4)
+		{
+			console.log("error code " + xmlHttp.status +" received for request: " + ReactionAPIURL);
+		}
+    }
+    xmlHttp.open("GET", ReactionAPIURL, true); // true for asynchronous 
+    xmlHttp.send(null);
+}
+
 
 function DisplayHelp(message) 
 {
@@ -49,12 +78,14 @@ function DisplayHelp(message)
 	
 	Output += "!help - Help \n";
 	Output += "hello - Greetings \n";
-	Output += "!calc - calculate rest of text \n";
+	Output += "!calc {query} - calculate query using math and science \n";
 	Output += "!name - Get my name \n";
 	Output += "!about - About me \n";
 	Output += "!cat - Yes. \n";
 	Output += "!video - Youtube Search \n";
-	Output += "!tickets {jira user alias} - get users current open tickets in jira";
+	Output += "!tickets {jira user alias} - get users current open tickets in jira \n";
+	Output += "!google {query} - returns top 3 google results \n";
+	Output += "!image {query} - google image result for query";
 	
 	PostMessage(Output, message.channel);
 }
@@ -65,7 +96,7 @@ function YoutubeSearch(message)
 		if (error) {
 			PostMessage(error, message.channel);
 		}
-		else if (!result || !result.items || result.items.length < 1) {
+		else if (!result || !result.items || result.items.length < 1 || !result.items[0].id || !result.items[0].id.videoId) {
 			PostMessage("¯\\_(ツ)_/¯", message.channel);
 		} 
 		else {
@@ -73,6 +104,106 @@ function YoutubeSearch(message)
 			PostMessage(YTlink, message.channel);
 		}
 	});
+}
+
+function GoogleSearch(message, bImagesOnly)
+{
+	var query = message.text;
+	
+	if(query.trim().length == 0)
+	{
+		PostMessage("Tickets command Must give a user as an argument.", message.channel);
+		return;
+	}
+	
+	
+	// We need this to build our post string
+	var http = require("http");
+	var fs = require("fs");
+	
+	var baseQuery = "https://www.googleapis.com/customsearch/v1?"
+	var auth = "key="+ AuthDetails.google_custom_search_key +"&cx="+ AuthDetails.google_custom_search_engine;
+	var filterString = bImagesOnly ? "&searchType=image" : "";
+	var numResults = bImagesOnly ? "&num=1" : "&num=3";
+	
+	//https://www.googleapis.com/customsearch/v1?key=INSERT_YOUR_API_KEY&cx=017576662512468239146:omuauf_lfve&searchtype=image&num=1&q=query
+	var EntireQuery = baseQuery + auth + "&q=" + (query.replace(/\s/g, '+')) + filterString + numResults;
+	
+	var strData = '';
+	
+	
+	function ProcessData(data)
+	{
+		console.log("returned: " + data);
+		var jsonData = JSON.parse(data);
+		if(bImagesOnly)
+		{
+			jsonData.items.forEach(function(responseItem){
+				if(responseItem.imageobject)
+				{
+					PostMessage(responseItem.imageobject[0].url, message.channel);
+				}
+				else if(responseItem.cse_image)
+				{
+					PostMessage(responseItem.cse_image[0].src, message.channel);
+				}
+				else if(responseItem.image)
+				{
+					PostMessage(responseItem.image.contextLink, message.channel);
+				}
+				else if(responseItem.cse_thumbnail)
+				{
+					PostMessage(responseItem.cse_thumbnail[0].src, message.channel);
+				}
+				else if(responseItem.pagemap)
+				{
+					if(responseItem.pagemap.imageobject)
+					{
+						PostMessage(responseItem.pagemap.imageobject[0].url, message.channel);
+					}
+					else if(responseItem.pagemap.cse_image)
+					{
+						PostMessage(responseItem.pagemap.cse_image[0].src, message.channel);
+					}
+					else if(responseItem.pagemap.image)
+					{
+						PostMessage(responseItem.pagemap.image.contextLink, message.channel);
+					}
+					else if(responseItem.pagemap.cse_thumbnail)
+					{
+						PostMessage(responseItem.pagemap.cse_thumbnail[0].src, message.channel);
+					}
+				}
+				else
+				{
+					PostMessage("Sorry, I wasn't able to find the direct image link in this mess: " + JSON.stringify(responseItem), message.channel);
+				}
+			});
+		}
+		else
+		{
+			
+			jsonData.items.forEach(function(responseItem){
+				// replace html bolding with slack bolding
+				PostMessage(responseItem.htmlTitle.replace(new RegExp("<b>", 'g'), "*").replace(new RegExp("</b>", 'g'), "*") + ":\n" + responseItem.link, message.channel);
+			});
+		}
+	}
+	
+	var xmlHttp = new XMLHttpRequest();
+    xmlHttp.onreadystatechange = function() { 
+        if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
+		{
+            ProcessData(xmlHttp.responseText);
+		}
+		else if (xmlHttp.readyState == 4)
+		{
+			console.log("error code " + xmlHttp.status +" received for request: " + EntireQuery);
+			PostMessage("error code " + xmlHttp.status +" received for request: " + EntireQuery, message.channel);
+		}
+    }
+    xmlHttp.open("GET", EntireQuery, true); // true for asynchronous 
+    xmlHttp.send(null);
 }
 
 function IsValidIssue(issue)
@@ -127,6 +258,7 @@ function GetWork(message)
 	if(User.trim().length == 0)
 	{
 		PostMessage("Tickets command Must give a user as an argument.", message.channel);
+		return;
 	}
 	// We need this to build our post string
 	var https = require("https");
@@ -198,7 +330,7 @@ function GetWork(message)
 
 	}
 
-	PostCode('assignee in ('+User+') AND STATUS not in (\"WORK COMPLETE\", \"Approved\", \"Closed\")');
+	PostCode('assignee in ('+User+') AND STATUS not in (\"WORK COMPLETE\", \"Won\'t Fix\", \"On Hold\", \"QA Complete\", \"Approved\", \"Closed\")');
 }
 
 function WolframQuery(message) {
@@ -302,12 +434,12 @@ function ProcessMessage(message)
 	else if(message.text.includes("!name"))
 	{
 		message.text = message.text.replace("!name", "");
-		PostMessage("My name es JEFF", message.channel);
+		PostMessage("My name is listed right above this message. I am not sure what else you want from me.", message.channel);
 	}
 	else if(message.text.includes("!about"))
 	{
 		message.text = message.text.replace("!about", "");
-		PostMessage("This is the about me section", message.channel);
+		PostMessage("I am a WIP bot being put together for fun to add helpful and fun options to slack. I will have bugs. ", message.channel);
 	}
 	else if(message.text.includes("!cat"))
 	{
@@ -317,12 +449,22 @@ function ProcessMessage(message)
 	else if(message.text.includes("hello"))
 	{
 		message.text = message.text.replace("hello", "");
-		PostMessage("Sup Homies", message.channel);
+		PostMessage("Hello Capsher Team, let me know if I can assist you. type !help for more options.", message.channel);
 	}
 	else if(message.text.includes("!tickets "))
 	{
 		message.text = message.text.replace("!tickets ", "");
 		GetWork(message);
+	}
+	else if(message.text.includes("!google "))
+	{
+		message.text = message.text.replace("!google ", "");
+		GoogleSearch(message, false);
+	}
+	else if(message.text.includes("!image "))
+	{
+		message.text = message.text.replace("!image ", "");
+		GoogleSearch(message, true);
 	}
 }
 
@@ -332,6 +474,11 @@ rtm.on(RTM_EVENTS.MESSAGE, function handleRtmMessage(message) {
   if(message.user != rtm.activeUserId && message.text && message.text.length > 0)
   {
 	ProcessMessage( message );
+  }
+  //random chance to react to messages
+  if(Math.random() < .15)
+  {
+	ReactToMessage(message);
   }
 });
 

@@ -139,7 +139,11 @@ function GoogleSearch(message, bImagesOnly)
 		if(bImagesOnly)
 		{
 			jsonData.items.forEach(function(responseItem){
-				if(responseItem.imageobject)
+				if(responseItem.link)
+				{
+					PostMessage(responseItem.link, message.channel);
+				}
+				else if(responseItem.imageobject)
 				{
 					PostMessage(responseItem.imageobject[0].url, message.channel);
 				}
@@ -149,7 +153,7 @@ function GoogleSearch(message, bImagesOnly)
 				}
 				else if(responseItem.image)
 				{
-					PostMessage(responseItem.image.contextLink, message.channel);
+					PostMessage(responseItem.image.thumbnailLink, message.channel);
 				}
 				else if(responseItem.cse_thumbnail)
 				{
@@ -167,7 +171,7 @@ function GoogleSearch(message, bImagesOnly)
 					}
 					else if(responseItem.pagemap.image)
 					{
-						PostMessage(responseItem.pagemap.image.contextLink, message.channel);
+						PostMessage(responseItem.pagemap.image.thumbnailLink, message.channel);
 					}
 					else if(responseItem.pagemap.cse_thumbnail)
 					{
